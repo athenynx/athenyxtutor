@@ -1,0 +1,8 @@
+{
+  "name": "Athenyx Tutor",
+  "description": "An AI-powered learning companion for children in Grades 1–5 with voice conversations, animated robot teacher, interactive quizzes, and child-safe tutoring.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
