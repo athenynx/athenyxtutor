@@ -71,7 +71,7 @@ Includes dedicated modules across 8 core elementary subjects:
    ```bash
    GEMINI_API_KEY="your-gemini-api-key"
    ```
-   *(Note: The app includes an intelligent offline educational fallback engine so it functions even before an API key is attached!)*
+   Without this key, the app can answer simple arithmetic and a few curated facts. Other tutor questions require the AI service and will display a setup message instead of an unverified answer.
 4. Start the development server:
    ```bash
    npm run dev
@@ -92,4 +92,5 @@ The application is pre-configured for one-click deployment on **Vercel**:
    - **Output Directory**: `dist`
 4. In Vercel Project Settings > **Environment Variables**, add:
    - `GEMINI_API_KEY`: Your Gemini API Key
+   - Apply it to Production (and Preview/Development if needed), then redeploy.
 5. Click **Deploy**. Vercel will host the frontend and execute the serverless function in `/api/tutor.ts`.

@@ -3,6 +3,7 @@ import dotenv from 'dotenv';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import { GoogleGenAI } from '@google/genai';
+import { getTutorFallback } from './src/lib/tutorFallback';
 
 dotenv.config();
 
@@ -25,6 +26,11 @@ const ai = process.env.GEMINI_API_KEY
       },
     })
   : null;
+
+const CONFIGURATION_ERROR =
+  'The tutor AI is not configured yet. Ask an adult to add GEMINI_API_KEY in the Vercel project settings.';
+const UNAVAILABLE_ERROR =
+  'I cannot verify an answer right now because the tutor service is unavailable. Please try again shortly.';
 
 // Child-safe safety filter
 const FORBIDDEN_WORDS = [
@@ -96,6 +102,9 @@ Instructions:
 7. Keep responses concise (around 2 to 4 friendly paragraphs max).
 8. If asked an inappropriate or dangerous question, gently redirect to an exciting educational topic.
 9. Never pretend to be a human, parent, or medical professional. Never ask for the child's last name, address, or personal data.`;
+    const accuracyGuidance = `
+10. Prioritize correctness over speed or confidence. Check every calculation before answering.
+11. Do not invent facts. If you are unsure or the answer may have changed, say so and suggest checking a reliable source with an adult.`;
 
     let replyText = '';
 
@@ -123,19 +132,26 @@ Instructions:
           model: 'gemini-3.8-flash',
           contents,
           config: {
-            systemInstruction,
-            temperature: 0.7,
+            systemInstruction: `${systemInstruction}${accuracyGuidance}`,
+            temperature: 0.2,
           },
         });
 
         replyText = response.text || '';
       } catch (geminiError: any) {
-        console.warn('Gemini API call returned error, using smart educational fallback:', geminiError?.message || geminiError);
+        console.error('Gemini API request failed:', geminiError?.message || geminiError);
       }
     }
 
     if (!replyText) {
-      replyText = getSmartEducationalResponse(message, validatedGrade, subject);
+      replyText = getTutorFallback(message, validatedGrade, subject) || '';
+    }
+
+    if (!replyText) {
+      res.status(503).json({
+        error: ai ? UNAVAILABLE_ERROR : CONFIGURATION_ERROR,
+      });
+      return;
     }
 
     res.json({
@@ -150,48 +166,11 @@ Instructions:
     });
   } catch (error: any) {
     console.error('Tutor API Error:', error);
-    res.json({
-      reply: "Hello explorer! I am Athenyx. In learning, every question is a great step forward! What would you like to explore next?",
-      grade: 2,
-      subject: 'general',
-      suggestedFollowUps: ['Tell me a fun science fact', 'Help me with math', 'Give me a riddle']
+    res.status(500).json({
+      error: 'I could not process that question right now. Please try again.',
     });
   }
 });
-
-function getSmartEducationalResponse(question: string, grade: number, subject: string): string {
-  const q = question.toLowerCase();
-
-  if (q.includes('addition') || q.includes('add') || q.includes('plus')) {
-    if (grade === 1) {
-      return "Addition means putting numbers together! 🍎 Imagine you have 2 apples and I give you 3 more. Let's count them together: 1, 2, 3, 4, 5. So, 2 + 3 = 5! Can you try adding 1 + 4?";
-    } else {
-      return "Addition combines groups of items into one larger total! For example, if you have 25 building blocks and find 15 more, you group the tens (20 + 10 = 30) and ones (5 + 5 = 10) to make 40 blocks. Would you like to practice a carrying problem?";
-    }
-  }
-
-  if (q.includes('multiply') || q.includes('times') || q.includes('multiplication')) {
-    return "Multiplication is super-speedy addition of equal groups! 🌟 Think of 3 boxes with 4 cupcakes each: instead of adding 4 + 4 + 4, we multiply 3 × 4 = 12! What times table are you practicing in class?";
-  }
-
-  if (q.includes('sky') && q.includes('blue')) {
-    return "The sky looks blue because of how sunlight travels through Earth's atmosphere! Sunlight has all colors of the rainbow, but blue light scatters across the sky like bouncing bouncy balls. Have you ever noticed the sky change colors at sunset?";
-  }
-
-  if (q.includes('moon') || q.includes('space') || q.includes('planet')) {
-    return "The Moon does not actually change shape! As the Moon orbits around Earth, the Sun shines on different parts of it. The lit portions we see from our backyards are called the phases of the Moon. What phase is your favorite?";
-  }
-
-  if (q.includes('plant') || q.includes('tree') || q.includes('flower')) {
-    return "Plants are like green solar power stations! Their roots drink water from soil, their leaves absorb sunlight, and they create fresh oxygen for us to breathe through photosynthesis. Isn't nature amazing?";
-  }
-
-  if (q.includes('noun') || q.includes('verb') || q.includes('adjective')) {
-    return "In English, every word has a special job! A NOUN is a person, animal, place, or thing (like 'dolphin' or 'school'). A VERB is an action word (like 'jump' or 'laugh'). And an ADJECTIVE describes things (like 'shiny' or 'fluffy'). Can you spot the noun in 'The dog ran'?";
-  }
-
-  return `That is a wonderful Grade ${grade} question! In ${subject}, we learn by exploring step by step. When we look closely at how things work and test our ideas, we discover amazing patterns. Would you like me to give you a fun everyday example or a practice question?`;
-}
 
 // Health check endpoint
 app.get('/api/health', (_req: Request, res: Response) => {

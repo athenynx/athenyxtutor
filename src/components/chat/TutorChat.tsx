@@ -1,6 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { GradeLevel, SubjectId, ChatMessage, RobotState } from '../../types';
 import { SUBJECTS } from '../../lib/curriculum';
+import { getTutorFallback } from '../../lib/tutorFallback';
 import { evaluateStudentInput } from '../../lib/safety';
 import { playSound } from '../../lib/sound';
 import {
@@ -16,6 +17,8 @@ import {
   Square,
   Radio
 } from 'lucide-react';
+
+const getChatStorageKey = (grade: GradeLevel) => `athenyx_chat_v2_g${grade}`;
 
 interface TutorChatProps {
   grade: GradeLevel;
@@ -62,7 +65,7 @@ export const TutorChat: React.FC<TutorChatProps> = ({
   const [messages, setMessages] = useState<ChatMessage[]>(() => {
     if (typeof window !== 'undefined') {
       try {
-        const saved = localStorage.getItem(`athenyx_chat_g${grade}`);
+        const saved = localStorage.getItem(getChatStorageKey(grade));
         if (saved) {
           const parsed = JSON.parse(saved);
           if (Array.isArray(parsed) && parsed.length > 0) return parsed;
@@ -103,7 +106,7 @@ export const TutorChat: React.FC<TutorChatProps> = ({
   useEffect(() => {
     if (typeof window !== 'undefined' && messages.length > 0) {
       try {
-        localStorage.setItem(`athenyx_chat_g${grade}`, JSON.stringify(messages.slice(-30)));
+        localStorage.setItem(getChatStorageKey(grade), JSON.stringify(messages.slice(-30)));
       } catch {
         // ignore
       }
@@ -203,6 +206,9 @@ export const TutorChat: React.FC<TutorChatProps> = ({
       });
 
       const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'The tutor service is unavailable. Please try again.');
+      }
       const replyText = data.reply || "Let me explain this step by step for you.";
 
       const robotMsg: ChatMessage = {
@@ -228,25 +234,37 @@ export const TutorChat: React.FC<TutorChatProps> = ({
         setActiveSpeakingMsgId(robotMsg.id);
         onSpeakText(replyText);
       }
-    } catch (err: any) {
-      console.warn('Network issue, using client tutor engine:', err);
-      const fallbackReply = generateFallbackReply(text, grade, subject);
+    } catch (err: unknown) {
+      console.warn('Tutor request failed:', err);
+      const isNetworkError = err instanceof TypeError;
+      const fallbackText = getTutorFallback(text, grade, subject);
+      const replyText = fallbackText || (
+        isNetworkError
+          ? 'I cannot connect to the tutor service right now. Please check the connection and try again.'
+          : err instanceof Error
+            ? err.message
+            : 'I could not verify an answer right now. Please try again shortly.'
+      );
 
       const robotMsg: ChatMessage = {
         id: `robot-fb-${Date.now()}`,
         sender: 'robot',
-        text: fallbackReply.text,
+        text: replyText,
         timestamp: Date.now(),
         grade,
         subject,
-        suggestedPrompts: fallbackReply.prompts,
+        suggestedPrompts: [
+          'Try another question',
+          'Ask a math question',
+          'Explain the Moon’s phases'
+        ],
       };
 
       setMessages((prev) => [...prev, robotMsg]);
       setRobotState('speaking');
       if (autoSpeakEnabled) {
         setActiveSpeakingMsgId(robotMsg.id);
-        onSpeakText(fallbackReply.text);
+        onSpeakText(replyText);
       }
     } finally {
       setIsLoading(false);
@@ -269,7 +287,7 @@ export const TutorChat: React.FC<TutorChatProps> = ({
       };
       setMessages([resetMsg]);
       if (typeof window !== 'undefined') {
-        localStorage.removeItem(`athenyx_chat_g${grade}`);
+        localStorage.removeItem(getChatStorageKey(grade));
       }
     }
   };
@@ -587,41 +605,3 @@ export const TutorChat: React.FC<TutorChatProps> = ({
     </div>
   );
 };
-
-function generateFallbackReply(
-  question: string,
-  grade: GradeLevel,
-  subject: SubjectId
-): { text: string; prompts: string[] } {
-  const q = question.toLowerCase();
-
-  if (q.includes('sky') && q.includes('blue')) {
-    return {
-      text: "Sunlight is composed of every color of the rainbow! Blue light travels in short, smaller waves. When it enters Earth's atmosphere, it bounces off gas molecules in all directions. This scattering fills our sky with blue!",
-      prompts: ['Why is the sunset red?', 'What are clouds made of?', 'Tell me a space riddle'],
-    };
-  }
-
-  if (q.includes('plant') || q.includes('tree')) {
-    return {
-      text: "Plants are nature's solar power factories! Roots drink water from the soil, leaves absorb sunlight, and they transform carbon dioxide into energy while releasing clean oxygen for us to breathe.",
-      prompts: ['Why are leaves green?', 'What is photosynthesis?', 'How do seeds grow?'],
-    };
-  }
-
-  if (q.includes('math') || q.includes('add') || q.includes('multiply')) {
-    return {
-      text: "Math becomes easy when we break problems down into small steps. Multiplication is simply repeated addition of equal groups: 4 groups of 3 is 4 × 3 = 12. Which problem shall we solve together?",
-      prompts: ['Teach me the 9 times table', 'What is a fraction?', 'Help with a word problem'],
-    };
-  }
-
-  return {
-    text: `That is an excellent question for Grade ${grade}. In ${subject}, we understand concepts by examining step-by-step examples. Would you like me to walk you through a real-world scenario or try a practice challenge?`,
-    prompts: [
-      'Give me a step-by-step example',
-      'Explain it in simple words',
-      'Give me a quiz question'
-    ],
-  };
-}
